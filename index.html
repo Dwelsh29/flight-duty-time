@@ -10,12 +10,14 @@
   .wrap{max-width:980px;margin:24px auto;padding:16px}
   .title{font-weight:700;font-size:24px;margin:0 0 4px}
   .subtitle{color:var(--muted);margin:0 0 16px}
-  .grid{display:grid;gap:12px;grid-template-columns:repeat(12,1fr)}
+
+  /* Grid: minmax prevents overflow on small devices */
+  .grid{display:grid;gap:12px;grid-template-columns:repeat(12, minmax(0,1fr))}
   .card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px}
   .row{display:flex;gap:10px;flex-wrap:wrap}
   label{font-size:13px;color:var(--muted);display:block;margin-bottom:6px}
-  input,select{width:100%;background:var(--input);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:10px 12px;font-size:16px;outline:none}
-  .col-6{grid-column:span 6} .col-12{grid-column:span 12}
+  input,select{width:100%;max-width:100%;background:var(--input);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:10px 12px;font-size:16px;outline:none}
+  .col-6{grid-column:span 6} .col-4{grid-column:span 4} .col-3{grid-column:span 3} .col-12{grid-column:span 12}
   .btn{display:inline-block;border:1px solid var(--border);background:#11314f;color:var(--text);padding:10px 14px;border-radius:10px;font-weight:600;cursor:pointer}
   .btn:hover{filter:brightness(1.1)}
   .btn.alt{background:#142a40}
@@ -27,25 +29,25 @@
   .pill{display:inline-block;padding:2px 8px;border-radius:999px;border:1px solid var(--border);background:#0f2841;color:var(--text);font-size:12px;margin-right:6px}
   .disclaimer{font-size:12px;color:var(--muted)}
   .muted{color:var(--muted)}
-/* Prevent any intrinsic overflow */
-.grid{ grid-template-columns:repeat(12, minmax(0,1fr)); } input,select{ max-width:100%; }
 
-/* Mobile layout fix */
-@media (max-width: 420px){
-  .wrap{ padding:12px }
-  .card{ padding:12px; border-radius:10px }
-  .title{ font-size:20px }
+  /* Mobile layout fix */
+  @media (max-width: 420px){
+    .wrap{ padding:12px }
+    .card{ padding:12px; border-radius:10px }
+    .title{ font-size:20px }
 
-  /* Stack columns on small screens */
-  .col-6, .col-4, .col-3 { grid-column: span 12; }
+    /* Stack columns on small screens */
+    .col-6, .col-4, .col-3 { grid-column: span 12; }
 
-  /* Slightly tighter spacing + iOS zoom-safe inputs */
-  .row{ gap:8px }
-  input,select{ padding:9px 10px; font-size:16px }
-  .btn{ padding:9px 12px }
-}
-
- </style> </head> <body> <div class="wrap">
+    /* Tighter spacing + iOS zoom-safe inputs */
+    .row{ gap:8px }
+    input,select{ padding:9px 10px; font-size:16px; max-width:100% }
+    .btn{ padding:9px 12px }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
   <h1 class="title">Wingman Flight / Duty–Rest Calculator</h1>
   <p class="subtitle">Advisory calculator for quick legality checks. <span class="muted">Always verify against regs/ops specs.</span></p>
 
@@ -135,15 +137,14 @@
 
 <script>
   const DateTime = luxon.DateTime;
+  const PROX_THRESHOLD_MIN = 30; // 30-minute buffer for yellow warnings
 
-  // ---- presets (minutes) ----
+  // Rule presets (minutes)
   const presets = {
     "91": { maxDutyMin:null, maxFlightMin24:null, minRestMin:null, label:"Part 91 Advisory" },
     "135": { maxDutyMin: 14*60, maxFlightMin24: 10*60, minRestMin: 10*60, label:"Part 135 Baseline" },
     "121": { maxDutyMin: 14*60, maxFlightMin24:  9*60, minRestMin: 10*60, label:"Part 121 Simplified" }
   };
-
-  const PROX_THRESHOLD_MIN = 30; // 30-minute warning buffer
 
   const el = id=>document.getElementById(id);
   const statusBox = el('statusBox'), statusLabel = el('statusLabel'), statusMsg = el('statusMsg');
@@ -158,44 +159,30 @@
 
   function setStatus(css, head, html){ statusBox.classList.remove('ok','warn','bad'); statusBox.classList.add(css); statusLabel.textContent=head; statusMsg.innerHTML=html; }
 
-  // classify: split violations, proximity warnings, and notes
+  // Split violations, proximity warnings, and notes
   function classify(ruleKey, dutyMin, blockMin, firstOut, lastIn){
     const p = presets[ruleKey];
-    let violations = [];
-    let warnings = [];
-    let notes = [];
+    let violations = [], warnings = [], notes = [];
 
     if (p.maxDutyMin!=null){
-      if (dutyMin > p.maxDutyMin){
-        violations.push(`Duty ${fmtHM(dutyMin)} exceeds limit ${fmtHM(p.maxDutyMin)}`);
-      } else if (p.maxDutyMin - dutyMin <= PROX_THRESHOLD_MIN){
-        warnings.push(`Approaching limit: duty is within ${fmtHM(p.maxDutyMin - dutyMin)} of ${fmtHM(p.maxDutyMin)}`);
-      }
+      if (dutyMin > p.maxDutyMin)  violations.push(`Duty ${fmtHM(dutyMin)} exceeds limit ${fmtHM(p.maxDutyMin)}`);
+      else if (p.maxDutyMin - dutyMin <= PROX_THRESHOLD_MIN) warnings.push(`Approaching limit: duty is within ${fmtHM(p.maxDutyMin - dutyMin)} of ${fmtHM(p.maxDutyMin)}`);
     }
 
     if (p.maxFlightMin24!=null){
-      if (blockMin > p.maxFlightMin24){
-        violations.push(`Flight time ${fmtHM(blockMin)} exceeds ${fmtHM(p.maxFlightMin24)} in 24h`);
-      } else if (p.maxFlightMin24 - blockMin <= PROX_THRESHOLD_MIN){
-        warnings.push(`Approaching limit: flight time is within ${fmtHM(p.maxFlightMin24 - blockMin)} of ${fmtHM(p.maxFlightMin24)}`);
-      }
+      if (blockMin > p.maxFlightMin24) violations.push(`Flight time ${fmtHM(blockMin)} exceeds ${fmtHM(p.maxFlightMin24)} in 24h`);
+      else if (p.maxFlightMin24 - blockMin <= PROX_THRESHOLD_MIN) warnings.push(`Approaching limit: flight time is within ${fmtHM(p.maxFlightMin24 - blockMin)} of ${fmtHM(p.maxFlightMin24)}`);
     }
 
     if (firstOut && lastIn){
       const spanMin = Math.round(lastIn.diff(firstOut,'minutes').minutes);
-      if (spanMin > 24*60) {
-        // span > 24h is informational (since we don't implement full rolling-window logic here)
-        notes.push(`Flight span ${fmtHM(spanMin)} exceeds 24h window (check rolling limits)`);
-      }
+      if (spanMin > 24*60) notes.push(`Flight span ${fmtHM(spanMin)} exceeds 24h window (check rolling limits)`);
     }
 
-    if (p.minRestMin!=null){
-      notes.push(`Minimum rest required before next duty: ${fmtHM(p.minRestMin)}`);
-    }
+    if (p.minRestMin!=null) notes.push(`Minimum rest required before next duty: ${fmtHM(p.minRestMin)}`);
 
-    // Determine status/headline
     let status='ok', headline=(ruleKey==='91'?'ADVISORY':'LEGAL');
-    if (ruleKey!=='91'){ // advisory-only for Part 91
+    if (ruleKey!=='91'){
       if (violations.length>0){ status='bad'; headline='NOT LEGAL'; }
       else if (warnings.length>0){ status='warn'; headline='WARNING'; }
     }
