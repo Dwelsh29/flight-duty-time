@@ -1,0 +1,289 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" /> <title>Wingman Flight/Duty–Rest Calculator</title> <link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet"> <script src="https://cdn.jsdelivr.net/npm/luxon@3/build/global/luxon.min.js"></script>
+<style>
+  :root{
+    --bg:#0a1b2a; --card:#112235; --muted:#94a3b8;
+    --ok:#16a34a; --warn:#f59e0b; --bad:#ef4444; --text:#e5e7eb; --accent:#38bdf8;
+    --input:#0f2841; --border:#1f364d;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif}
+  .wrap{max-width:900px;margin:24px auto;padding:16px}
+  .title{font-weight:700;font-size:24px;margin:0 0 4px}
+  .subtitle{color:var(--muted);margin:0 0 16px}
+  .grid{display:grid;gap:12px;grid-template-columns:repeat(12,1fr)}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px}
+  .row{display:flex;gap:10px;flex-wrap:wrap}
+  label{font-size:13px;color:var(--muted);display:block;margin-bottom:6px}
+  input,select{width:100%;background:var(--input);border:1px solid var(--border);color:var(--text);
+    border-radius:8px;padding:10px 12px;font-size:14px;outline:none}
+  .col-6{grid-column:span 6} .col-4{grid-column:span 4} .col-3{grid-column:span 3} .col-12{grid-column:span 12}
+  .btn{display:inline-block;border:1px solid var(--border);background:#11314f;color:var(--text);
+    padding:10px 14px;border-radius:10px;font-weight:600;cursor:pointer}
+  .btn:hover{filter:brightness(1.1)}
+  .btn.alt{background:#142a40}
+  .status{border-radius:12px;padding:14px 16px;font-weight:700;margin-bottom:12px}
+  .ok{background:rgba(22,163,74,.15);border:1px solid rgba(22,163,74,.35);color:#86efac}
+  .warn{background:rgba(245,158,11,.15);border:1px solid rgba(245,158,11,.35);color:#fde68a}
+  .bad{background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.35);color:#fecaca}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace}
+  .pill{display:inline-block;padding:2px 8px;border-radius:999px;border:1px solid var(--border);background:var(--input);color:var(--text);font-size:12px;margin-right:6px}
+  .disclaimer{font-size:12px;color:var(--muted)}
+  .muted{color:var(--muted)}
+  @media (max-width:720px){ .col-6,.col-4,.col-3{grid-column:span 12} } </style> </head> <body> <div class="wrap">
+  <h1 class="title">Wingman Flight / Duty–Rest Calculator</h1>
+  <p class="subtitle">Advisory calculator for quick legality checks. <span class="muted">Always verify against regs/ops specs.</span></p>
+
+  <div class="card status ok" id="statusBox">
+    <div id="statusLabel">READY</div>
+    <div id="statusMsg" class="muted" style="margin-top:4px">Enter duty and flight details, then press <b>Compute</b>.</div>
+  </div>
+
+  <div class="grid">
+    <div class="col-6 card">
+      <label for="ruleSet">Rule set</label>
+      <select id="ruleSet">
+        <option value="91">Part 91 (Advisory)</option>
+        <option value="135">Part 135 (Baseline)</option>
+        <option value="121">Part 121 (Simplified)</option>
+      </select>
+      <div class="row" style="margin-top:12px">
+        <span class="pill" id="pillDuty">Max duty: —</span>
+        <span class="pill" id="pillFlight">Max flight/24h: —</span>
+        <span class="pill" id="pillRest">Min rest: —</span>
+      </div>
+    </div>
+
+    <div class="col-6 card">
+      <label for="crewType">Crew type</label>
+      <select id="crewType">
+        <option value="single">Single-pilot</option>
+        <option value="two">Two-pilot</option>
+        <option value="augmented">Augmented</option>
+      </select>
+      <label for="segments" style="margin-top:10px">Number of segments (legs)</label>
+      <input id="segments" type="number" min="1" value="1" />
+    </div>
+
+    <div class="col-6 card">
+      <label>Duty start (local)</label>
+      <input id="dutyStart" type="datetime-local">
+      <label style="margin-top:10px">Duty end (local)</label>
+      <input id="dutyEnd" type="datetime-local">
+    </div>
+
+    <div class="col-6 card">
+      <label>Total block (flight time) hh:mm</label>
+      <input id="blockHhmm" type="text" placeholder="e.g. 07:30">
+      <div class="grid" style="margin-top:10px">
+        <div class="col-6">
+          <label>First flight OUT (optional)</label>
+          <input id="firstOut" type="datetime-local">
+        </div>
+        <div class="col-6">
+          <label>Last flight IN (optional)</label>
+          <input id="lastIn" type="datetime-local">
+        </div>
+      </div>
+    </div>
+
+    <div class="col-12 card">
+      <div class="row">
+        <button class="btn" id="computeBtn">Compute</button>
+        <button class="btn alt" id="resetBtn">Reset</button>
+      </div>
+      <div id="results" style="margin-top:14px">
+        <div class="muted">Results will appear here.</div>
+      </div>
+      <p class="disclaimer" style="margin-top:12px">
+        This tool is a simplified advisory aid. It does not implement full FAR 117/135 tables, extensions, acclimation, FDP start time adjustments,
+        unforeseen operational circumstances, or company/CBA limits. PIC remains responsible for compliance.
+      </p>
+    </div>
+  </div>
+</div>
+
+<script>
+  const DateTime = luxon.DateTime;
+  const dur = (h)=> h*60; // minutes
+
+  const presets = {
+    "91": { maxDutyMin:null, maxFlightMin24:null, minRestMin:null, label:"Part 91 Advisory" },
+    "135": { maxDutyMin: dur(14), maxFlightMin24: dur(10), minRestMin: dur(10), label:"Part 135 Baseline" },
+    "121": { maxDutyMin: dur(14), maxFlightMin24: dur(9),  minRestMin: dur(10), label:"Part 121 Simplified" }
+  };
+
+  const el = id=>document.getElementById(id);
+  const statusBox = el('statusBox'), statusLabel = el('statusLabel'), statusMsg = el('statusMsg');
+  const pillDuty = el('pillDuty'), pillFlight = el('pillFlight'), pillRest = el('pillRest');
+
+  function fmtHM(mins){
+    if(mins==null) return "—";
+    const h = Math.floor(mins/60), m = Math.abs(mins%60);
+    return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
+  }
+
+  function setPresetPills(key){
+    const p = presets[key];
+    pillDuty.textContent = `Max duty: ${fmtHM(p.maxDutyMin)}`;
+    pillFlight.textContent = `Max flight/24h: ${fmtHM(p.maxFlightMin24)}`;
+    pillRest.textContent = `Min rest: ${fmtHM(p.minRestMin)}`;
+  }
+
+  setPresetPills(el('ruleSet').value);
+  el('ruleSet').addEventListener('change', e=> setPresetPills(e.target.value));
+
+  function parseHM(txt){
+    if(!txt) return null;
+    const m = txt.match(/^(\d{1,2}):([0-5]\d)$/);
+    if(!m) return null;
+    return parseInt(m[1],10)*60 + parseInt(m[2],10);
+  }
+
+  function classify(ruleKey, crew, dutyMin, blockMin, firstOut, lastIn){
+    const p = presets[ruleKey];
+    let issues = [];
+
+    // Duty limit
+    if(p.maxDutyMin!=null && dutyMin>p.maxDutyMin){
+      issues.push(`Duty ${fmtHM(dutyMin)} exceeds limit ${fmtHM(p.maxDutyMin)}`);
+    }
+
+    // Flight in 24h (simple window using provided block total; if first/last provided, we can check span)
+    if(p.maxFlightMin24!=null){
+      // If first/last exist and span > 24h, that's a concern as well
+      if(firstOut && lastIn){
+        const spanMin = lastIn.diff(firstOut,'minutes').minutes;
+        if(spanMin> (24*60)) issues.push(`Flight span ${fmtHM(Math.round(spanMin))} exceeds 24h window (check rolling limits)`);
+      }
+      if(blockMin>p.maxFlightMin24){
+        issues.push(`Flight time ${fmtHM(blockMin)} exceeds ${fmtHM(p.maxFlightMin24)} in 24h`);
+      }
+    }
+
+    // Rest requirement (we don't know prior rest from inputs; advisory)
+    if(p.minRestMin!=null){
+      // Provide advisory text only
+      issues.push(`Minimum rest required before next duty: ${fmtHM(p.minRestMin)}`);
+    }
+
+    // Status
+    let status = 'ok';
+    let headline = 'LEGAL';
+    if(ruleKey!=='91'){ // Part 91 advisory only
+      // If any hard exceedances (duty or flight) exist, mark bad
+      const hard = issues.filter(x=> x.includes('exceeds limit') || x.includes('exceeds')).length;
+      if(hard>0){ status='bad'; headline='NOT LEGAL'; }
+      else if(issues.length>0){ status='warn'; headline='WARNING'; }
+    } else {
+      status='ok'; headline='ADVISORY';
+    }
+
+    return {status, headline, issues};
+  }
+
+  function setStatus(cssClass, headline, msgHtml){
+    statusBox.classList.remove('ok','warn','bad');
+    statusBox.classList.add(cssClass);
+    statusLabel.textContent = headline;
+    statusMsg.innerHTML = msgHtml;
+  }
+
+  function compute(){
+    const rule = el('ruleSet').value;
+    const crew = el('crewType').value;
+    const segs = parseInt(el('segments').value||'1',10);
+
+    const dsVal = el('dutyStart').value, deVal = el('dutyEnd').value;
+    if(!dsVal || !deVal){
+      setStatus('warn','MISSING INPUT','Enter <b>Duty start</b> and <b>Duty end</b>.');
+      el('results').innerHTML = '<span class="muted">—</span>';
+      return;
+    }
+    const dutyStart = DateTime.fromISO(dsVal);
+    const dutyEnd   = DateTime.fromISO(deVal);
+    if(!dutyStart.isValid || !dutyEnd.isValid || dutyEnd <= dutyStart){
+      setStatus('warn','INVALID TIME','Check that duty end is after duty start.');
+      el('results').innerHTML = '<span class="muted">—</span>';
+      return;
+    }
+
+    const dutyMin = Math.round(dutyEnd.diff(dutyStart,'minutes').minutes);
+    const blockMin = parseHM(el('blockHhmm').value);
+    if(blockMin==null){
+      setStatus('warn','MISSING INPUT','Enter <b>Total block</b> as HH:MM (e.g. 07:30).');
+      el('results').innerHTML = '<span class="muted">—</span>';
+      return;
+    }
+
+    const firstOutVal = el('firstOut').value;
+    const lastInVal   = el('lastIn').value;
+    const firstOut = firstOutVal ? DateTime.fromISO(firstOutVal) : null;
+    const lastIn   = lastInVal   ? DateTime.fromISO(lastInVal)   : null;
+
+    const res = classify(rule, crew, dutyMin, blockMin, firstOut, lastIn);
+
+    const details = `
+      <div class="row">
+        <div class="pill">Duty: <span class="mono">${fmtHM(dutyMin)}</span></div>
+        <div class="pill">Block: <span class="mono">${fmtHM(blockMin)}</span></div>
+        <div class="pill">Segments: <span class="mono">${segs}</span></div>
+      </div>
+      <ul style="margin:10px 0 0 16px">
+        ${res.issues.map(x=>`<li>${x}</li>`).join('')}
+      </ul>
+    `;
+
+    setStatus(res.status, res.headline, details);
+
+    const spanTxt = (firstOut && lastIn) ? DateTime.fromISO(lastInVal).diff(DateTime.fromISO(firstOutVal),'hours').toFormat("h' h 'mm' m'") : '—';
+    el('results').innerHTML = `
+      <div class="card">
+        <div><b>Rule set:</b> ${presets[rule].label} | <b>Crew:</b> ${crew.replace(/^./,c=>c.toUpperCase())}</div>
+        <div class="muted" style="margin-top:6px">Flight span (if provided): ${spanTxt}</div>
+      </div>`;
+  }
+
+  function resetAll(){
+    ['dutyStart','dutyEnd','blockHhmm','firstOut','lastIn'].forEach(id=> el(id).value='');
+    el('segments').value='1'; el('ruleSet').value='91'; el('crewType').value='single'; setPresetPills('91');
+    setStatus('ok','READY','Enter duty and flight details, then press <b>Compute</b>.');
+    el('results').innerHTML='<div class="muted">Results will appear here.</div>';
+  }
+
+  el('computeBtn').addEventListener('click', compute);
+  el('resetBtn').addEventListener('click', resetAll); 
+    </div> <!-- closes the card with Compute/Reset/results -->
+
+    <!-- INFO BOX START -->
+    <div style="
+      background:#112235;
+      color:#e5e7eb;
+      border:1px solid #1f364d;
+      border-radius:12px;
+      padding:16px;
+      font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      line-height:1.45;
+      margin-top:16px;
+    ">
+      <div style="font-weight:700;margin-bottom:6px;">How to use this tool</div>
+      <ul style="margin:0 0 8px 18px;padding:0;">
+        <li>Enter <b>Duty Start / Duty End</b> in local time.</li>
+        <li>Add <b>total block (flight time)</b> and number of legs.</li>
+        <li>Choose <b>rule set</b> (Part 91 = advisory only; Part 135/121 = simplified limits).</li>
+        <li>Tap <b>Compute</b> to check legality.</li>
+      </ul>
+      <div style="font-size:12px;color:#94a3b8;">
+        <b>Note:</b> “Simplified” applies baseline FAA duty/rest limits. It does <b>not</b> include full FAR 117 tables,
+        grace periods, acclimation, unforeseen operational circumstances, or company/CBA extensions.
+        PIC remains responsible for compliance.
+      </div>
+    </div>
+    <!-- INFO BOX END -->
+
+</script> </body> </html>
+
