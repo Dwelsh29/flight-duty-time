@@ -86,7 +86,6 @@
 
     <div class="col-12 card">
       <div class="row">
-        <!-- inline handlers ensure the buttons always work -->
         <button class="btn" id="computeBtn" onclick="compute()">Compute</button>
         <button class="btn alt" id="resetBtn" onclick="resetAll()">Reset</button>
       </div>
@@ -117,14 +116,16 @@
 </div>
 
 <script>
-  console.log('Wingman calculator script loaded');
   const DateTime = luxon.DateTime;
 
+  // ---- presets (minutes) ----
   const presets = {
     "91": { maxDutyMin:null, maxFlightMin24:null, minRestMin:null, label:"Part 91 Advisory" },
     "135": { maxDutyMin: 14*60, maxFlightMin24: 10*60, minRestMin: 10*60, label:"Part 135 Baseline" },
     "121": { maxDutyMin: 14*60, maxFlightMin24:  9*60, minRestMin: 10*60, label:"Part 121 Simplified" }
   };
+
+  const PROX_THRESHOLD_MIN = 30; // 30-minute warning buffer
 
   const el = id=>document.getElementById(id);
   const statusBox = el('statusBox'), statusLabel = el('statusLabel'), statusMsg = el('statusMsg');
@@ -139,23 +140,55 @@
 
   function setStatus(css, head, html){ statusBox.classList.remove('ok','warn','bad'); statusBox.classList.add(css); statusLabel.textContent=head; statusMsg.innerHTML=html; }
 
+  // classify: split violations, proximity warnings, and notes
   function classify(ruleKey, dutyMin, blockMin, firstOut, lastIn){
-    const p=presets[ruleKey]; let issues=[];
-    if(p.maxDutyMin!=null && dutyMin>p.maxDutyMin) issues.unshift(`Duty ${fmtHM(dutyMin)} exceeds limit ${fmtHM(p.maxDutyMin)}`);
-    if(p.maxFlightMin24!=null){
-      if(blockMin>p.maxFlightMin24) issues.unshift(`Flight time ${fmtHM(blockMin)} exceeds ${fmtHM(p.maxFlightMin24)} in 24h`);
-      if(firstOut && lastIn){ const spanMin=Math.round(lastIn.diff(firstOut,'minutes').minutes); if(spanMin>1440) issues.push(`Flight span ${fmtHM(spanMin)} exceeds 24h window (check rolling limits)`); }
+    const p = presets[ruleKey];
+    let violations = [];
+    let warnings = [];
+    let notes = [];
+
+    if (p.maxDutyMin!=null){
+      if (dutyMin > p.maxDutyMin){
+        violations.push(`Duty ${fmtHM(dutyMin)} exceeds limit ${fmtHM(p.maxDutyMin)}`);
+      } else if (p.maxDutyMin - dutyMin <= PROX_THRESHOLD_MIN){
+        warnings.push(`Approaching limit: duty is within ${fmtHM(p.maxDutyMin - dutyMin)} of ${fmtHM(p.maxDutyMin)}`);
+      }
     }
-    if(p.minRestMin!=null) issues.push(`Minimum rest required before next duty: ${fmtHM(p.minRestMin)}`);
-    let status='ok', head='LEGAL';
-    if(ruleKey!=='91'){ const hard=issues.filter(x=>x.includes('exceeds')).length; if(hard>0){status='bad'; head='NOT LEGAL';} else if(issues.length>0){status='warn'; head='WARNING';} }
-    else head='ADVISORY';
-    return {status, head, issues};
+
+    if (p.maxFlightMin24!=null){
+      if (blockMin > p.maxFlightMin24){
+        violations.push(`Flight time ${fmtHM(blockMin)} exceeds ${fmtHM(p.maxFlightMin24)} in 24h`);
+      } else if (p.maxFlightMin24 - blockMin <= PROX_THRESHOLD_MIN){
+        warnings.push(`Approaching limit: flight time is within ${fmtHM(p.maxFlightMin24 - blockMin)} of ${fmtHM(p.maxFlightMin24)}`);
+      }
+    }
+
+    if (firstOut && lastIn){
+      const spanMin = Math.round(lastIn.diff(firstOut,'minutes').minutes);
+      if (spanMin > 24*60) {
+        // span > 24h is informational (since we don't implement full rolling-window logic here)
+        notes.push(`Flight span ${fmtHM(spanMin)} exceeds 24h window (check rolling limits)`);
+      }
+    }
+
+    if (p.minRestMin!=null){
+      notes.push(`Minimum rest required before next duty: ${fmtHM(p.minRestMin)}`);
+    }
+
+    // Determine status/headline
+    let status='ok', headline=(ruleKey==='91'?'ADVISORY':'LEGAL');
+    if (ruleKey!=='91'){ // advisory-only for Part 91
+      if (violations.length>0){ status='bad'; headline='NOT LEGAL'; }
+      else if (warnings.length>0){ status='warn'; headline='WARNING'; }
+    }
+
+    return {status, headline, violations, warnings, notes};
   }
 
-  // Expose functions globally so inline onclick can call them
+  // Expose functions globally for inline onclick
   window.compute = function compute(){
     const rule = el('ruleSet').value;
+
     const dsVal = el('dutyStart').value, deVal = el('dutyEnd').value;
     if(!dsVal || !deVal){ setStatus('warn','MISSING INPUT','Enter <b>Duty start</b> and <b>Duty end</b>.'); el('results').innerHTML='<span class="muted">—</span>'; return; }
     const dutyStart = DateTime.fromISO(dsVal); const dutyEnd = DateTime.fromISO(deVal);
@@ -170,16 +203,27 @@
 
     const res = classify(rule, dutyMin, blockMin, firstOut, lastIn);
 
+    const detailList = []
+      .concat(res.violations.map(x=>`<li>${x}</li>`))
+      .concat(res.warnings.map(x=>`<li>${x}</li>`))
+      .concat(res.notes.map(x=>`<li>${x}</li>`))
+      .join('');
+
     const details = `
       <div class="row">
         <div class="pill">Duty: <span class="mono">${fmtHM(dutyMin)}</span></div>
         <div class="pill">Block: <span class="mono">${fmtHM(blockMin)}</span></div>
       </div>
-      <ul style="margin:10px 0 0 16px">${res.issues.map(x=>`<li>${x}</li>`).join('')}</ul>`;
-    setStatus(res.status, res.head, details);
+      <ul style="margin:10px 0 0 16px">${detailList}</ul>
+    `;
+    setStatus(res.status, res.headline, details);
 
     const spanTxt = (firstOut && lastIn) ? lastIn.diff(firstOut,'hours').toFormat("h' h 'mm' m'") : '—';
-    el('results').innerHTML = `<div class="card"><div><b>Rule set:</b> ${presets[rule].label}</div><div class="muted" style="margin-top:6px">Flight span (if provided): ${spanTxt}</div></div>`;
+    el('results').innerHTML = `
+      <div class="card">
+        <div><b>Rule set:</b> ${presets[rule].label}</div>
+        <div class="muted" style="margin-top:6px">Flight span (if provided): ${spanTxt}</div>
+      </div>`;
   };
 
   window.resetAll = function resetAll(){
